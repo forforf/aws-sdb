@@ -2,11 +2,13 @@ require 'logger'
 require 'time'
 require 'cgi'
 require 'uri'
-require 'net/http'
+#require 'net/http'  #replaced with curb-fu for finer grain control
 require 'base64'
 require 'openssl'
 require 'rexml/document'
 require 'rexml/xpath'
+require 'curb-fu'
+
 
 module AwsSdb
 
@@ -102,10 +104,11 @@ module AwsSdb
         'ItemName' => item.to_s
       }
       count = 0
+      #escaping key and value so signature computes correctly
       attributes.each do | key, values |
         ([]<<values).flatten.each do |value|
-          params["Attribute.#{count}.Name"] = key.to_s
-          params["Attribute.#{count}.Value"] = value.to_s
+          params["Attribute.#{count}.Name"] = CGI.escape(key.to_s)
+          params["Attribute.#{count}.Value"] = CGI.escape(value.to_s)
           params["Attribute.#{count}.Replace"] = replace
           count += 1
         end
@@ -114,19 +117,24 @@ module AwsSdb
       nil
     end
 
-    def get_attributes(domain, item)
+    #updated to support consitent read
+    def get_attributes(domain, item, consist_read = 'true')
       doc = call(
         :get,
         {
           'Action' => 'GetAttributes',
           'DomainName' => domain.to_s,
-          'ItemName' => item.to_s
+          'ItemName' => item.to_s,
+          'ConsistentRead' => 'true'
         }
       )
       attributes = {}
       REXML::XPath.each(doc, "//Attribute") do |attr|
-        key = REXML::XPath.first(attr, './Name/text()').to_s
-        value = REXML::XPath.first(attr, './Value/text()').to_s
+        unesc_key = REXML::XPath.first(attr, './Name/text()').to_s
+        unesc_value = REXML::XPath.first(attr, './Value/text()').to_s
+        #unescape key and value to return to normal
+        key = CGI.unescape(unesc_key)
+        value = CGI.unescape(unesc_value)
         ( attributes[key] ||= [] ) << value
       end
       attributes
@@ -147,34 +155,31 @@ module AwsSdb
     protected
 
     def call(method, params)
+      #updated to support signtature version 2
       params.merge!( {
-          'Version' => '2007-11-07',
-          'SignatureVersion' => '1',
+          'Version' => '2009-04-15',
+          'SignatureMethod' => 'HmacSHA256',
+          'SignatureVersion' => '2',
           'AWSAccessKeyId' => @access_key_id,
           'Timestamp' => Time.now.gmtime.iso8601
         }
       )
-      data = ''
-      query = []
-      params.keys.sort_by { |k| k.upcase }.each do |key|
-        data << "#{key}#{params[key].to_s}"
-        query << "#{key}=#{CGI::escape(params[key].to_s)}"
-      end
-      digest = OpenSSL::Digest::Digest.new('sha1')
-      hmac = OpenSSL::HMAC.digest(digest, @secret_access_key, data)
-      signature = Base64.encode64(hmac).strip
-      query << "Signature=#{CGI::escape(signature)}"
-      query = query.join('&')
-      url = "#{@base_url}?#{query}"
+ 
+      canonical_querystring = params.sort.collect { |k,v| [CGI.escape(k.to_s), CGI.escape(v.to_s)].join('=')}.join('&')
+      string_to_sign= "GET\n#{URI.parse(@base_url).host}\n/\n#{canonical_querystring}"
+
+      digest = OpenSSL::Digest::Digest.new('sha256')
+      signature = Base64.encode64(OpenSSL::HMAC.digest(digest, @secret_access_key, string_to_sign)).chomp
+      
+      params['Signature'] = signature
+      querystring = params.collect { |key, value| [CGI.escape(key.to_s), CGI.escape(value.to_s)].join('=') }.join('&') # order doesn't matter for the actual request
+      
+      url = "#{@base_url}?#{querystring}"
       uri = URI.parse(url)
-      @logger.debug("#{url}") if @logger
-      response =
-        Net::HTTP.new(uri.host, uri.port).send_request(method, uri.request_uri)
-      @logger.debug("#{response.code}\n#{response.body}") if @logger
-      raise(ConnectionError.new(response)) unless (200..400).include?(
-        response.code.to_i
-      )
-      doc = REXML::Document.new(response.body)
+
+      resp = CurbFu.get(url)
+ 
+      doc = REXML::Document.new(resp.body)
       error = doc.get_elements('*/Errors/Error')[0]
       raise(
         Module.class_eval(
