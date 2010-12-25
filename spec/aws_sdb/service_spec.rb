@@ -9,7 +9,10 @@ require 'uuidtools'
 
 include AwsSdb
 
+
 describe Service, "when creating a new domain" do
+  include UUIDTools
+  
   before(:all) do
     @service = AwsSdb::Service.new
     @domain = "test-#{UUID.random_create.to_s}"
