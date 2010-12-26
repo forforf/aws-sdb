@@ -10,6 +10,16 @@ module AwsSdb
       @request_id = request_id
     end
   end
+  
+    class ServiceUnavailableError < Error
+    attr_reader :request_id
+
+    def initialize(message, request_id=nil)
+      puts "SUESUE"
+      super(message)
+      @request_id = request_id
+    end
+  end
 
   class InvalidDomainNameError < RequestError ; end
   class InvalidParameterValueError < RequestError ; end

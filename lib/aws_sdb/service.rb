@@ -9,6 +9,16 @@ require 'rexml/document'
 require 'rexml/xpath'
 require 'curb-fu'
 
+#duck punch so that space converts to %20
+class CGI
+  @@accept_charset="UTF-8" unless defined?(@@accept_charset)
+
+  def CGI::escape(string)
+    string.gsub(/([^a-zA-Z0-9_.-]+)/n) do
+      '%' + $1.unpack('H2' * $1.size).join('%').upcase
+    end
+  end
+end
 
 module AwsSdb
 
@@ -20,20 +30,6 @@ module AwsSdb
       @logger = options[:logger] || Logger.new("aws_sdb.log")
     end
     
-    def aws_esc(str)
-      esc_str = CGI.escape(str)
-      #plus to space
-      esc_str1 = esc_str.gsub('%2B', '%20')
-      #space to space
-      #esc_str2 = esc_str.gsub('%2A', '*')
-      #puts "ESCAPED FROM -> #{esc_str.inspect}  ->  #{esc_str1}"
-      esc_str1
-    end
-    
-    #def aws_unesc(str)
-    #  unesc_str = str.gsub('%22',"\"")
-    #end
-
     def list_domains(max = nil, token = nil)
       params = { 'Action' => 'ListDomains' }
       params['NextToken'] =
@@ -49,6 +45,7 @@ module AwsSdb
     end
 
     def create_domain(domain)
+      domain.strip! if domain
       call(:post, { 'Action' => 'CreateDomain', 'DomainName'=> domain.to_s })
       nil
     end
@@ -60,6 +57,7 @@ module AwsSdb
       )
       nil
     end
+    
     # <QueryWithAttributesResult><Item><Name>in-c2ffrw</Name><Attribute><Name>code</Name><Value>in-c2ffrw</Value></Attribute><Attribute><Name>date_created</Name><Value>2008-10-31</Value></Attribute></Item><Item>
     def query_with_attributes(domain, query, max = nil, token = nil)
       params = {
@@ -90,11 +88,16 @@ module AwsSdb
     end
 
     # <QueryResult><ItemName>in-c2ffrw</ItemName><ItemName>in-72yagt</ItemName><ItemName>in-52j8gj</ItemName>
-    def query(domain, query, max = nil, token = nil)
-      esc_query = aws_esc(query)
+    
+    def select(query, max = nil, token = nil)
+      #domain is not needed
+      query #CGI.escape(query)
+      ####esc_query = aws_esc(query)
+      ###esc_query =  uri_esc(query)
       params = {
         'Action' => 'Select',
-        'SelectExpression' => esc_query##, #CGI.escape(query),
+        'SelectExpression' => query,##, #CGI.escape(query),
+        'ConsistentRead' => 'true'
         #'DomainName' => domain.to_s
       }
       params['NextToken'] =
@@ -102,10 +105,10 @@ module AwsSdb
       params['MaxNumberOfItems'] =
         max.to_s unless max.nil? || max.to_i == 0
 
-      puts "QUERY EXPRESSION BEFORE CALL: #{esc_query.inspect}"
+      @logger.debug { "SELECT EXPRESSION BEFORE CALL: #{query.inspect}" } if @logger.debug?
       doc = call(:get, params)
       results = []
-      REXML::XPath.each(doc, '//ItemName/text()') do |item|
+      REXML::XPath.each(doc, '//Item/Name/text()') do |item|
         results << item.to_s
       end
 
@@ -123,8 +126,8 @@ module AwsSdb
       #escaping key and value so signature computes correctly
       attributes.each do | key, values |
         ([]<<values).flatten.each do |value|
-          params["Attribute.#{count}.Name"] = aws_esc(key.to_s) ###CGI.escape(key.to_s) ##key.to_s #CGI.escape(key.to_s)
-          params["Attribute.#{count}.Value"] = aws_esc(value.to_s) ###CGI.escape(value.to_s) ##value.to_s #CGI.escape(value.to_s)
+          params["Attribute.#{count}.Name"] = CGI.escape(key.to_s) ##key.to_s #CGI.escape(key.to_s)
+          params["Attribute.#{count}.Value"] = CGI.escape(value.to_s) ##value.to_s #CGI.escape(value.to_s)
           params["Attribute.#{count}.Replace"] = replace
           count += 1
         end
@@ -173,11 +176,12 @@ module AwsSdb
     def build_canonical_query_string(q_params)
       qs = []
       q_params.sort.each do |k,v|
-        if k == "SelectExpression" 
+        if nil #k == "SelectExpression" 
           new_v = [k.to_s, v.to_s].join('=').gsub('+', '%20')
           puts "New V: #{new_v.inspect}"
           qs << new_v
         else
+          #puts "OKC"
           qs << [CGI.escape(k.to_s), CGI.escape(v.to_s)].join('=')
         end
       end
@@ -187,9 +191,10 @@ module AwsSdb
     def build_actual_query_string(q_params)
       qs = []
       q_params.sort.each do |k,v|
-        if k == "SelectExpression" 
+        if nil #k == "SelectExpression" 
           qs << [k.to_s, v.to_s].join('=')
         else
+          #puts "OKA"
           qs << [CGI.escape(k.to_s), CGI.escape(v.to_s)].join('=')
         end
       end
@@ -211,7 +216,7 @@ module AwsSdb
 
 
       
-      puts "CALL: #{method} with #{params.inspect}"
+      @logger.debug { "CALL: #{method} with #{params.inspect}" } if @logger.debug?
       
   
       canonical_querystring = build_canonical_query_string(params)
@@ -220,7 +225,7 @@ module AwsSdb
       ####canonical_querystring = params.sort.collect { |k,v| [aws_esc(k.to_s), aws_esc(v.to_s)].join('=')}.join('&')
 
       
-      puts "CANONICAL: #{canonical_querystring.inspect}"
+      @logger.debug { "CANONICAL: #{canonical_querystring.inspect}" } if @logger.debug?
       
       string_to_sign= "GET\n#{URI.parse(@base_url).host}\n/\n#{canonical_querystring}"
       
@@ -233,26 +238,33 @@ module AwsSdb
       #signature = Base64.encode64(OpenSSL::HMAC.digest(digest, @secret_access_key, string_to_sign)).chomp      
       
       params['Signature'] = signature
-      puts "SIG: #{signature.inspect}"
       ###querystring = params.collect { |key, value| [CGI.escape(key.to_s), CGI.escape(value.to_s)].join('=') }.join('&') # order doesn't matter for the actual request
       ##querystring = params.collect { |key, value| [key.to_s, value.to_s].join('=') }.join('&') # order doesn't matter for the actual request
       ####querystring = params.sort.collect { |key, value| [aws_esc(key.to_s), aws_esc(value.to_s)].join('=') }.join('&') # order doesn't matter for the actual request
       querystring = build_actual_query_string(params)
       
-      puts "ACTUALQUERY: #{querystring.inspect}"
+      @logger.debug { "ACTUALQUERY: #{querystring.inspect}" } if @logger.debug?
       
       url = "#{@base_url}?#{querystring}"
       uri = URI.parse(url)
 
       #resp = CurbFu.get(url)
+      resp = request(url)
+      resp_body = resp.body
+      #resp_body =  `curl -X"GET" "#{url}" -A"simple ruby aws sdb wrapper"`
       
-      resp_body =  `curl -X"GET" "#{url}" -A"simple ruby aws sdb wrapper"`
-      
-      puts "RESP: #{resp_body.inspect}"
+      @logger.debug { "RESP: #{resp_body.inspect}" } if @logger.debug?
       #puts "RESP: #{resp.body.inspect}"
  
       doc = REXML::Document.new(resp_body)
+      
+      @logger.debug { "DECODED DOC:" } if @logger.debug?
+      #@logger.debug {doc.elements.each {|e| e.to_s } } if @logger.debug?
+      
       error = doc.get_elements('*/Errors/Error')[0]
+      #puts "ERROR: #{error.to_s}"
+      #puts "ERROR: #{error.get_elements('Code')[0].text}" if error
+      
       raise(
         Module.class_eval(
           "AwsSdb::#{error.get_elements('Code')[0].text}Error"
@@ -262,6 +274,39 @@ module AwsSdb
         )
       ) unless error.nil?
       doc
+    end
+    
+    def request(url, retry_data={})
+      resp = CurbFu.get(url) 
+      #puts "RESP HEAD: #{ resp.headers.inspect }"
+      puts "RESP STATUS: #{resp.status.inspect}"
+      if resp.nil? || resp.status == 503
+        resp = retry_req(url, retry_data)
+      end
+      raise "No response!!" unless resp
+      raise "No Body in Response" unless resp.body
+      resp
+    end
+    
+    def retry_req(url, retry_data)
+      resp = :retry
+      #retry parameters
+      max_retries = 10||retry_data[:max_retries]
+      init_wait = 0.2||retry_data[:init_wait]
+      wait_increase = 0.3||retry_data[:wait_increase]
+      retry_data[:wait] = init_wait||retry_data[:wait]
+      
+      #wait a tiny bit before the first retry and reset retry data
+      #then retry 
+      1.upto(max_retries)  do |retry_att|
+        sleep retry_data[:wait]
+        #puts "RETRY: #{retry_att}, WAIT: #{retry_data[:wait]}"
+        resp = request(url, retry_data)
+        break if resp && resp.status && resp.status != 503 && resp.body
+        retry_data[:wait] += wait_increase
+        retry_data[:wait_increase] = wait_increase * retry_att #request back off
+      end
+      resp
     end
   end
 
