@@ -21,10 +21,6 @@ describe Service, "when creating a new domain" do
     end
   end
   
-  before(:each) do
-    #sleep 0.2
-  end
-
   after(:all) do
     @service.delete_domain(@domain)
   end
@@ -88,10 +84,6 @@ describe Service, "when listing domains" do
     @service.create_domain(@domain)
   end
   
-  before(:each) do
-    #sleep 0.2
-  end
-
   after(:all) do
     @service.delete_domain(@domain)
   end
@@ -179,21 +171,27 @@ describe Service, "when managing items" do
     end
   end
 
-=begin
-  it "should be able to query" do
-    query_str = "select * from #{@domain}"
+  it "should be able to select all from domain" do
+    query_str = "select * from `#{@domain}`"
     result = nil
     lambda {
-      result = @service.query(@domain, query_str)
+      result = @service.select(query_str)
     }.should_not raise_error
-    puts "RESULT: #{result}"
     result.should_not be_nil
     result.should_not be_empty
     result.should_not be_nil
-    result.include?(@item).should == true
+    result[0].keys.include?(@item).should == true
+    result[0].values.size.should == 1
+    #attribute names
+    result[0].values[0].keys.sort.should == ['answer', 'question']
+    #questions
+    result[0].values[0]['question'].should == ['What is the answer?']
+    #answers
+    result[0].values[0]['answer'].size == 5
+    result[0].values[0]['answer'].include?("42").should == true
+    result[0].values[0]['answer'].include?("testing123").should == true
   end
-=end
-  #it "should be able to query with attributes"
+
 
   it "should be able to delete attributes" do
     lambda {
