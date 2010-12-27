@@ -72,29 +72,31 @@ module AwsSdb
 
       @logger.debug { "SELECT EXPRESSION BEFORE CALL: #{query.inspect}" } if @logger.debug?
       doc = call(:get, params)
-      item_doc = REXML::XPath.match(doc, '//Item')
+
       items = {}
       attributes = {}
-      
+
       #build the result hash
-      REXML::XPath.each(item_doc, '//Item/Name') do |item_name_doc|
-        item_name = item_name_doc.text
-        REXML::XPath.each(item_doc, '//Attribute') do |attrib_doc|
-          attrib_name = nil
-          attrib_value = nil
-          attrib_doc.elements.each('Name') do |name|
-            attrib_name = CGI.unescape(name.text)
-          end
-          attrib_doc.elements.each('Value') do |value|
-            attrib_value = CGI.unescape(value.text)
-          end
+      REXML::XPath.each(doc, '//Item') do |item_doc|
+        item_name = item_doc.elements["Name"].text
+
+        item_doc.each do |attrib_doc|
+          att_name = attrib_doc.elements["Name"]
+          att_value = attrib_doc.elements["Value"]
+          
+          next unless (att_name && att_value)
+          
+          attrib_name = CGI.unescape(att_name.text)
+          attrib_value = CGI.unescape(att_value.text)
+
           add_value(attributes, attrib_name, attrib_value)
         end
         items[item_name] = attributes
+        #reset attributes so we don't clobber next item
+        attributes = {}
+        items
       end
-      attr_names = REXML::XPath.match(item_doc, '//Attribute/Name/text()')
       results = items
-
       return results, REXML::XPath.first(doc, '//NextToken/text()').to_s
     end
     
@@ -174,12 +176,9 @@ module AwsSdb
           'Timestamp' => Time.now.gmtime.iso8601
         }
       )
-      
       @logger.debug { "CALL: #{method} with #{params.inspect}" } if @logger.debug?
       
-  
       canonical_querystring = build_canonical_query_string(params)
-      
       @logger.debug { "CANONICAL: #{canonical_querystring.inspect}" } if @logger.debug?
       
       string_to_sign= "GET\n#{URI.parse(@base_url).host}\n/\n#{canonical_querystring}"

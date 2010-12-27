@@ -8,7 +8,7 @@ require 'rubygems'
 require 'uuidtools'
 
 include AwsSdb
-
+=begin
 describe Service, "when creating a new domain" do
   include UUIDTools
   
@@ -126,7 +126,7 @@ describe Service, "when deleting domains" do
     }.should_not raise_error
   end
 end
-
+=end
 describe Service, "when managing items" do
     include UUIDTools
     
@@ -142,10 +142,6 @@ describe Service, "when managing items" do
       :question => 'What is the answer?',
       :answer => [ true, 'testing123', 4.2, 42, 420 ]
     }
-  end
-  
-  before(:each) do
-    #sleep 0.2
   end
 
   after(:all) do
@@ -172,16 +168,26 @@ describe Service, "when managing items" do
   end
 
   it "should be able to select all from domain" do
+    #add another set of data
+    item2 = "test-#{UUID.random_create.to_s}"
+    attributes2 = {
+      :question => "What are your favorite colors?",
+      :favorite_colors => ['red', 'green', 'blue'],
+      :answer => 'blue'
+      }
+      
+    @service.put_attributes(@domain, item2, attributes2)
+      
     query_str = "select * from `#{@domain}`"
     result = nil
-    lambda {
+    #lambda {
       result = @service.select(query_str)
-    }.should_not raise_error
+    #}.should_not raise_error
     result.should_not be_nil
     result.should_not be_empty
     result.should_not be_nil
     result[0].keys.include?(@item).should == true
-    result[0].values.size.should == 1
+    result[0].values.size.should == 2
     #attribute names
     result[0].values[0].keys.sort.should == ['answer', 'question']
     #questions
@@ -190,6 +196,14 @@ describe Service, "when managing items" do
     result[0].values[0]['answer'].size == 5
     result[0].values[0]['answer'].include?("42").should == true
     result[0].values[0]['answer'].include?("testing123").should == true
+    #attribute names
+    result[0].values[1].keys.sort.should == ['answer', 'favorite_colors', 'question']
+    #questions
+    result[0].values[1]['question'].should == ['What are your favorite colors?']
+    #answers
+    result[0].values[1]['favorite_colors'].size == 3
+    result[0].values[1]['favorite_colors'].sort.should == ['blue', 'green', 'red']
+    result[0].values[1]['answer'].should == ['blue']
   end
 
 
