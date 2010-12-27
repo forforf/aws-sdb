@@ -1,1 +1,8 @@
-Amazon SDB API
+Fork of Tim Dysinger's aws-sdb
+
+Features added in this fork
+
+* Support for AWS Signature Version 2 (SHA256)
+* Updated to support queries using Select Expressions (Query was deprecated)
+* Automatically retries on 503 errors 
+* Fixed specs to run and passing all specs
