@@ -109,7 +109,7 @@ module AwsSdb
       count = 0
       #escaping key and value so signature computes correctly
       attributes.each do | key, values |
-        ([]<<values).flatten.each do |value|
+        ( []<<values ).flatten.each do |value|
           params["Attribute.#{count}.Name"] = CGI.escape(key.to_s)
           params["Attribute.#{count}.Value"] = CGI.escape(value.to_s)
           params["Attribute.#{count}.Replace"] = replace
