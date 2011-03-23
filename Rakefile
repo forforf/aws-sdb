@@ -1,20 +1,50 @@
 require 'rubygems'
-require 'spec/rake/spectask'
-require 'rake/gempackagetask'
+require 'bundler'
+begin
+  Bundler.setup(:default, :development)
+rescue Bundler::BundlerError => e
+  $stderr.puts e.message
+  $stderr.puts "Run `bundle install` to install missing gems"
+  exit e.status_code
+end
+require 'rake'
 
-Spec::Rake::SpecTask.new
+require 'jeweler'
+Jeweler::Tasks.new do |gem|
+  # gem is a Gem::Specification... see http://docs.rubygems.org/read/chapter/20 for more options
+  gem.name = "forforf-aws-sdb"
+  gem.homepage = "http://github.com/forforf/aws-sdb"
+  gem.license = "MIT"
+  gem.summary = %Q{Fork of aws-sdb updated to work with latest AWS authentication}
+  gem.description = %Q{Update to the aws-sdb gem to support current AWS SimpleDB interface and authentication. Also built upon curl rather than net/http}
+  gem.email = "dmarti21@gmail.com"
+  gem.authors = ["Dave M"]
+  # Include your dependencies below. Runtime dependencies are required when using your gem,
+  # and development dependencies are only needed for development (ie running rake tasks, tests, etc)
+  #  gem.add_runtime_dependency 'jabber4r', '> 0.1'
+  #  gem.add_development_dependency 'rspec', '> 1.2.3'
+end
+Jeweler::RubygemsDotOrgTasks.new
 
-gem_spec = eval(IO.read(File.join(File.dirname(__FILE__), "aws-sdb.gemspec")))
-
-desc "Open an irb session preloaded with this library"
-task :console do
-  sh "irb -rubygems -I lib -r aws_sdb.rb"
+require 'rspec/core'
+require 'rspec/core/rake_task'
+RSpec::Core::RakeTask.new(:spec) do |spec|
+  spec.pattern = FileList['spec/**/*_spec.rb']
 end
 
-Rake::GemPackageTask.new(gem_spec) do |pkg|
-  pkg.gem_spec = gem_spec
+RSpec::Core::RakeTask.new(:rcov) do |spec|
+  spec.pattern = 'spec/**/*_spec.rb'
+  spec.rcov = true
 end
 
-task :install => [:package] do
-  sh %{sudo gem install pkg/#{gem_spec.name}-#{gem_spec.version}}
+task :default => :spec
+
+require 'rake/rdoctask'
+Rake::RDocTask.new do |rdoc|
+  version = File.exist?('VERSION') ? File.read('VERSION') : ""
+
+  rdoc.rdoc_dir = 'rdoc'
+  rdoc.title = "aws-sdb #{version}"
+  rdoc.rdoc_files.include('README*')
+  rdoc.rdoc_files.include('lib/**/*.rb')
 end
