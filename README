@@ -1,3 +1,5 @@
+-- Other libraries have fixed this and provide more robust services, making this a bit obsolete.
+
 Fork of Tim Dysinger's aws-sdb
 
 Features added in this fork
