@@ -1,3 +1,4 @@
 ---
 progress:
-  inactive: abandoned
+  inactive: 
+    abandoned: obsolete
